@@ -14,4 +14,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: t5567_encoder_fap
-        path: dist/t5567_encoder_app.fap
+        path: dist/t5567_encoder.fap
