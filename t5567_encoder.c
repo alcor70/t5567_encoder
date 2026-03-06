@@ -88,7 +88,7 @@ bool generate_rfid_file(const char* matricola) {
         
         char file_content[256];
         snprintf(file_content, sizeof(file_content),
-            "Filetype: Flipper RFID device\n"
+            "Filetype: Flipper RFID key\n"
             "Version: 1\n"
             "Key type: EM4100\n"
             "Data: 00 00 00 %02X %02X\n", byte4, byte5);
