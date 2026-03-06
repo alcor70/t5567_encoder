@@ -48,9 +48,6 @@ bool check_if_matricola_exists(const char* matricola) {
     bool found = false;
 
     if(storage_file_open(file, CSV_FILE_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
-        char buffer[64];
-        uint16_t read_bytes;
-        uint16_t search_len = strlen(matricola);
         
         // Simple line by line reading (naive approach for smallish files)
         // A robust implementation would handle cross-buffer line breaks
