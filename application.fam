@@ -1,0 +1,14 @@
+App(
+    appid="t5567_encoder",
+    name="T5567 Badge Encoder",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="t5567_encoder_app",
+    requires=["gui", "storage", "dialogs"],
+    stack_size=4 * 1024,
+    order=20,
+    fap_icon="icon.png",  # Optional, can be removed or a generic icon used
+    fap_category="RFID",
+    fap_description="Encode matricola to T5567 RFID format and manage duplicates",
+    fap_author="Antigravity",
+    fap_weburl="https://github.com/flipperdevices",
+)
