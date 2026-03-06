@@ -2,7 +2,6 @@
 #include <gui/gui.h>
 #include <input/input.h>
 #include <storage/storage.h>
-#include <dialogs/dialogs.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -10,8 +9,6 @@
 #define TAG "T5567_Encoder"
 #define CSV_FILE_PATH EXT_PATH("apps_data/t5567_encoder/anagrafica.csv")
 #define RFID_SAVE_PATH EXT_PATH("lfrfid/badge_%s.rfid")
-
-// ----- Logic Functions -----
 
 uint8_t reverse_nibble(uint8_t n) {
     uint8_t reversed = 0;
@@ -24,7 +21,6 @@ uint8_t reverse_nibble(uint8_t n) {
 
 uint16_t calculate_t5567_code(const char* matricola_str) {
     uint16_t matricola_val = atoi(matricola_str);
-    
     uint8_t d3 = (matricola_val / 1000) % 10;
     uint8_t d2 = (matricola_val / 100) % 10;
     uint8_t d1 = (matricola_val / 10) % 10;
@@ -41,22 +37,12 @@ uint16_t calculate_t5567_code(const char* matricola_str) {
     return (byte4 << 8) | byte5;
 }
 
-// Check if a string exists at the beginning of any line in the CSV file
 bool check_if_matricola_exists(const char* matricola) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* file = storage_file_alloc(storage);
     bool found = false;
 
     if(storage_file_open(file, CSV_FILE_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
-        
-        // Simple line by line reading (naive approach for smallish files)
-        // A robust implementation would handle cross-buffer line breaks
-        // But for Flipper, we read chunks and look for "\n" + matricola + ","
-        
-        // For simplicity in this example we will read the whole file line by line
-        // assuming standard Flipper stream functions or manual buffer parsing.
-        
-        // Very basic approach: read char by char to find lines
         char c;
         char line_start[16] = {0};
         uint8_t ls_idx = 0;
@@ -69,7 +55,6 @@ bool check_if_matricola_exists(const char* matricola) {
                 memset(line_start, 0, 16);
             } else if (at_line_start) {
                 if (c == ',') {
-                    // end of first column
                     at_line_start = false;
                     if (strcmp(line_start, matricola) == 0) {
                         found = true;
@@ -80,18 +65,14 @@ bool check_if_matricola_exists(const char* matricola) {
                 }
             }
         }
-    } else {
-        FURI_LOG_E(TAG, "Failed to open CSV file for reading");
     }
 
     storage_file_close(file);
     storage_file_free(file);
     furi_record_close(RECORD_STORAGE);
-    
     return found;
 }
 
-// Generate the Flipper RFID file format
 bool generate_rfid_file(const char* matricola) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* file = storage_file_alloc(storage);
@@ -105,14 +86,6 @@ bool generate_rfid_file(const char* matricola) {
         uint8_t byte4 = (code >> 8) & 0xFF;
         uint8_t byte5 = code & 0xFF;
         
-        // Flipper specific RFID file header for T5577 raw or EM4100
-        // A standard 125kHz EM4100 file format looks like this:
-        /*
-            Filetype: Flipper RFID device
-            Version: 1
-            Key type: EM4100
-            Data: 00 00 00 A2 44
-        */
         char file_content[256];
         snprintf(file_content, sizeof(file_content),
             "Filetype: Flipper RFID device\n"
@@ -130,18 +103,12 @@ bool generate_rfid_file(const char* matricola) {
     return success;
 }
 
-// ----- UI & App State -----
-
-typedef enum {
-    AppStateInput,
-    AppStateWarning,
-    AppStateDone,
-    AppStateError
-} AppState;
+typedef enum { AppStateInput, AppStateWarning, AppStateDone, AppStateError } AppState;
 
 typedef struct {
-    char input_buffer[10];
-    uint8_t input_index;
+    uint8_t digits[4];
+    uint8_t cur_idx;
+    char buffer_matricola[5];
     AppState state;
     char status_msg[64];
     FuriMutex* mutex;
@@ -150,42 +117,44 @@ typedef struct {
 static void draw_callback(Canvas* canvas, void* ctx) {
     T5567EncoderApp* app = ctx;
     furi_mutex_acquire(app->mutex, FuriWaitForever);
-
     canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str(canvas, 5, 12, "T5567 Encoder");
     
     if (app->state == AppStateInput) {
         canvas_set_font(canvas, FontSecondary);
-        canvas_draw_str(canvas, 5, 27, "Insert Matricola:");
+        canvas_draw_str(canvas, 5, 27, "Inserisci Matricola:");
         
         canvas_set_font(canvas, FontBigNumbers);
-        
-        // draw a cursor
-        char display_str[12];
-        snprintf(display_str, sizeof(display_str), "%s_", app->input_buffer);
-        canvas_draw_str(canvas, 5, 50, display_str);
-
-        if(app->input_index > 0) {
-            canvas_set_font(canvas, FontSecondary);
-            canvas_draw_str(canvas, 90, 60, "[OK] Write");
+        for(uint8_t i = 0; i < 4; i++) {
+            char d[2];
+            snprintf(d, sizeof(d), "%d", app->digits[i]);
+            canvas_draw_str(canvas, 20 + (i * 12), 52, d);
+            
+            if (i == app->cur_idx) {
+                // Sottolinea la cifra selezionata
+                canvas_draw_line(canvas, 20 + (i * 12), 54, 20 + (i * 12) + 9, 54);
+            }
         }
+        
+        canvas_set_font(canvas, FontSecondary);
+        canvas_draw_str(canvas, 5, 62, "Usa frecce. Tieni OK x Creare");
+        
     } else if (app->state == AppStateWarning) {
         canvas_set_font(canvas, FontSecondary);
-        canvas_draw_str(canvas, 5, 25, "Warning: Matricola");
-        canvas_draw_str(canvas, 5, 35, "already in CSV!");
-        canvas_draw_str(canvas, 5, 55, "[BACK] Cancel   [OK] Write");
+        canvas_draw_str(canvas, 5, 25, "Attenzione: Matricola");
+        canvas_draw_str(canvas, 5, 35, "gia' in anagrafica!");
+        canvas_draw_str(canvas, 5, 55, "[BACK] Annulla  [OK] Forza");
     } else if (app->state == AppStateDone) {
         canvas_set_font(canvas, FontSecondary);
-        canvas_draw_str(canvas, 5, 25, "Success!");
-        canvas_draw_str(canvas, 5, 40, app->status_msg);
-        canvas_draw_str(canvas, 5, 55, "Press BACK to exit");
+        canvas_draw_str(canvas, 5, 30, "Creato con Successo!");
+        canvas_draw_str(canvas, 5, 45, app->status_msg);
+        canvas_draw_str(canvas, 5, 60, "Premi BACK per uscire");
     } else if (app->state == AppStateError) {
         canvas_set_font(canvas, FontSecondary);
-        canvas_draw_str(canvas, 5, 30, "Error generating file.");
-        canvas_draw_str(canvas, 5, 55, "Press BACK to exit");
+        canvas_draw_str(canvas, 5, 30, "Errore SD Card.");
+        canvas_draw_str(canvas, 5, 55, "Premi BACK per uscire");
     }
-    
     furi_mutex_release(app->mutex);
 }
 
@@ -194,18 +163,18 @@ static void input_callback(InputEvent* input_event, void* ctx) {
     furi_message_queue_put(event_queue, input_event, FuriWaitForever);
 }
 
-// ----- Entry Point -----
-
 int32_t t5567_encoder_app_entry(void* p) {
     UNUSED(p);
-    
     T5567EncoderApp* app = malloc(sizeof(T5567EncoderApp));
     memset(app, 0, sizeof(T5567EncoderApp));
     app->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     app->state = AppStateInput;
+    app->cur_idx = 0;
+    
+    // Inizializza tutto a 0
+    app->digits[0] = 0; app->digits[1] = 0; app->digits[2] = 0; app->digits[3] = 0;
     
     FuriMessageQueue* event_queue = furi_message_queue_alloc(8, sizeof(InputEvent));
-    
     ViewPort* view_port = view_port_alloc();
     view_port_draw_callback_set(view_port, draw_callback, app);
     view_port_input_callback_set(view_port, input_callback, event_queue);
@@ -218,53 +187,57 @@ int32_t t5567_encoder_app_entry(void* p) {
     
     while(running) {
         if(furi_message_queue_get(event_queue, &event, 100) == FuriStatusOk) {
-            if(event.type == InputTypeShort) {
-                furi_mutex_acquire(app->mutex, FuriWaitForever);
-                
-                if (app->state == AppStateInput) {
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            
+            if (app->state == AppStateInput) {
+                if (event.type == InputTypeShort) {
                     if (event.key == InputKeyBack) {
-                        if (app->input_index > 0) {
-                            app->input_index--;
-                            app->input_buffer[app->input_index] = '\0';
-                        } else {
-                            running = false;
-                        }
-                    } else if (event.key == InputKeyUp && app->input_index < 4) {
-                        // Just an example, ideally use a virtual keyboard or directional input for digits
-                        // For a real FAP, we would use a Dialogs text input
-                        // Here we just mock inputs
-                    } else if (event.key == InputKeyOk && app->input_index > 0) {
-                        // Check if exists
-                        if (check_if_matricola_exists(app->input_buffer)) {
-                            app->state = AppStateWarning;
-                        } else {
-                            if (generate_rfid_file(app->input_buffer)) {
-                                snprintf(app->status_msg, sizeof(app->status_msg), "badge_%s.rfid created", app->input_buffer);
-                                app->state = AppStateDone;
-                            } else {
-                                app->state = AppStateError;
-                            }
-                        }
+                        running = false;
+                    } else if (event.key == InputKeyUp) {
+                        if (app->digits[app->cur_idx] == 9) app->digits[app->cur_idx] = 0;
+                        else app->digits[app->cur_idx]++;
+                    } else if (event.key == InputKeyDown) {
+                        if (app->digits[app->cur_idx] == 0) app->digits[app->cur_idx] = 9;
+                        else app->digits[app->cur_idx]--;
+                    } else if (event.key == InputKeyRight) {
+                        if (app->cur_idx < 3) app->cur_idx++;
+                    } else if (event.key == InputKeyLeft) {
+                        if (app->cur_idx > 0) app->cur_idx--;
                     }
-                } else if (app->state == AppStateWarning) {
-                    if (event.key == InputKeyBack) {
-                        app->state = AppStateInput;
-                    } else if (event.key == InputKeyOk) {
-                        if (generate_rfid_file(app->input_buffer)) {
-                            snprintf(app->status_msg, sizeof(app->status_msg), "badge_%s.rfid overwritten", app->input_buffer);
+                } else if (event.type == InputTypeLong && event.key == InputKeyOk) {
+                    // Costruisci la stringa matricola quando si tiene premuto OK
+                    snprintf(app->buffer_matricola, 5, "%d%d%d%d", app->digits[0], app->digits[1], app->digits[2], app->digits[3]);
+                    
+                    if (check_if_matricola_exists(app->buffer_matricola)) {
+                        app->state = AppStateWarning;
+                    } else {
+                        if (generate_rfid_file(app->buffer_matricola)) {
+                            snprintf(app->status_msg, sizeof(app->status_msg), "SD/lfrfid/badge_%s.rfid", app->buffer_matricola);
                             app->state = AppStateDone;
                         } else {
                             app->state = AppStateError;
                         }
                     }
-                } else if (app->state == AppStateDone || app->state == AppStateError) {
+                }
+            } else if (app->state == AppStateWarning) {
+                if (event.type == InputTypeShort) {
                     if (event.key == InputKeyBack) {
-                        running = false;
+                        app->state = AppStateInput;
+                    } else if (event.key == InputKeyOk) {
+                        if (generate_rfid_file(app->buffer_matricola)) {
+                            snprintf(app->status_msg, sizeof(app->status_msg), "Sovrascritto badge_%s.rfid", app->buffer_matricola);
+                            app->state = AppStateDone;
+                        } else {
+                            app->state = AppStateError;
+                        }
                     }
                 }
-                
-                furi_mutex_release(app->mutex);
+            } else if (app->state == AppStateDone || app->state == AppStateError) {
+                if (event.type == InputTypeShort && (event.key == InputKeyBack || event.key == InputKeyOk)) {
+                    running = false;
+                }
             }
+            furi_mutex_release(app->mutex);
         }
         view_port_update(view_port);
     }
@@ -276,6 +249,9 @@ int32_t t5567_encoder_app_entry(void* p) {
     furi_mutex_free(app->mutex);
     furi_record_close(RECORD_GUI);
     free(app);
+    return 0;
+}
+
     
     return 0;
 }
