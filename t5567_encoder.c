@@ -251,7 +251,3 @@ int32_t t5567_encoder_app_entry(void* p) {
     free(app);
     return 0;
 }
-
-    
-    return 0;
-}
