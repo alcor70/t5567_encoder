@@ -2,7 +2,7 @@ App(
     appid="t5567_encoder",
     name="T5567 Badge Encoder",
     apptype=FlipperAppType.EXTERNAL,
-    entry_point="t5567_encoder_app",
+    entry_point="t5567_encoder_app_entry",
     requires=["gui", "storage", "dialogs"],
     stack_size=4 * 1024,
     order=20,
