@@ -7,8 +7,8 @@
 #include <stdio.h>
 
 #define TAG "T5567_Encoder"
-#define CSV_FILE_PATH EXT_PATH("apps_data/t5567_encoder/anagrafica.csv")
-#define RFID_SAVE_PATH EXT_PATH("lfrfid/badge_%s.rfid")
+#define CSV_FILE_PATH "/ext/apps_data/t5567_encoder/anagrafica.csv"
+#define RFID_SAVE_PATH "/ext/lfrfid/badge_%s.rfid"
 
 uint8_t reverse_nibble(uint8_t n) {
     uint8_t reversed = 0;
@@ -127,8 +127,8 @@ static void draw_callback(Canvas* canvas, void* ctx) {
         
         canvas_set_font(canvas, FontBigNumbers);
         for(uint8_t i = 0; i < 4; i++) {
-            char d[2];
-            snprintf(d, sizeof(d), "%d", app->digits[i]);
+            char d[4];
+            snprintf(d, sizeof(d), "%u", app->digits[i]);
             canvas_draw_str(canvas, 20 + (i * 12), 52, d);
             
             if (i == app->cur_idx) {
@@ -163,7 +163,7 @@ static void input_callback(InputEvent* input_event, void* ctx) {
     furi_message_queue_put(event_queue, input_event, FuriWaitForever);
 }
 
-int32_t t5567_encoder_app_entry(void* p) {
+int32_t t5567_encoder_app(void* p) {
     UNUSED(p);
     T5567EncoderApp* app = malloc(sizeof(T5567EncoderApp));
     memset(app, 0, sizeof(T5567EncoderApp));
@@ -206,7 +206,11 @@ int32_t t5567_encoder_app_entry(void* p) {
                     }
                 } else if (event.type == InputTypeLong && event.key == InputKeyOk) {
                     // Costruisci la stringa matricola quando si tiene premuto OK
-                    snprintf(app->buffer_matricola, 5, "%d%d%d%d", app->digits[0], app->digits[1], app->digits[2], app->digits[3]);
+                    app->buffer_matricola[0] = '0' + app->digits[0];
+                    app->buffer_matricola[1] = '0' + app->digits[1];
+                    app->buffer_matricola[2] = '0' + app->digits[2];
+                    app->buffer_matricola[3] = '0' + app->digits[3];
+                    app->buffer_matricola[4] = '\0';
                     
                     if (check_if_matricola_exists(app->buffer_matricola)) {
                         app->state = AppStateWarning;
